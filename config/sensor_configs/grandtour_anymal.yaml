@@ -1,0 +1,22 @@
+# GrandTour, ANYmal sensors: Velodyne VLP-16 with the ANYmal IMU.
+topics:
+  pointcloud: "/anymal/velodyne/points"
+  imu: "/anymal/imu"
+
+calibration: # T_IMU_LIDAR (LiDAR -> IMU), anymal_imu -> velodyne_lidar from /tf_static
+  translation: [0.05435, -0.00255, -0.08178]
+  rotation: [1, 0, 0,
+             0, -1, 0,
+             0, 0, -1]
+
+lidar:
+  min_range_m: 0.5 # Exclude points closer than this range [m]
+  max_range_m: 100 # Exclude points farther than this range [m]
+
+intensity: # Velodyne VLP-16 (16 beams, +-15 deg, 0.2 deg azimuth resolution at 10 Hz)
+  image_width: 1800 # Horizontal resolution of the intensity image (360 deg)
+  image_height: 16 # Vertical resolution of the intensity image
+  fov_up_deg: 16 # Elevation of the upper image border [deg]
+  fov_down_deg: -16 # Elevation of the lower image border [deg]
+  scale: 1.0 # Scale applied to the raw intensity
+  window: [73, 3] # Brightness normalization window [px] (width, height)

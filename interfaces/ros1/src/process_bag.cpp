@@ -87,6 +87,7 @@ int main(int argc, char** argv) {
   LOG(I, "Done with for loop.");
   bag.close();
   LOG(I, "Bag closed");
+  pipeline->saveMap();
   LOG(I, "Timings:\n" << timing::Timing::Print());
 
   return 0;

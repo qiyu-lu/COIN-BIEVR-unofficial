@@ -31,3 +31,16 @@ datasets:
       Shield1: {bag: "bag/Shield_tunnel1_gamma.bag", gt: "groundtruth/traj/Shield_tunnel1.txt"}
       Shield4: {bag: "bag/Shield_tunnel4_gamma.bag", gt: "groundtruth/traj/Shield_tunnel4.txt"}
       Shield5: {bag: "bag/Shield_tunnel5_gamma.bag", gt: "groundtruth/traj/Shield_tunnel5.txt"}
+  # GrandTour sequences recorded with the ANYmal sensors (Velodyne VLP-16 + ANYmal IMU). The
+  # ground truth is the pose of the CPT7 IMU, whose position in the ANYmal IMU frame is the lever
+  # arm (anymal_imu -> cpt7_imu from /tf_static).
+  grandtour:
+    sensor_config: grandtour_anymal
+    lever_arm: [-0.33205, -0.03865, -0.20356]
+    sequences:
+      ARC2: {bag: "ARC2/2024-11-18-13-22-14_ARC2_full.bag", gt: "ARC2/boxi_inertial_explorer_tc_odometry.tum"}
+      ARC3: {bag: "ARC3/2024-11-18-13-48-19_ARC3_full.bag", gt: "ARC3/gt_odometry.tum"}
+      HEAP1: {bag: "HEAP1/2024-11-14-13-45-37_HEAP1_full.bag", gt: "HEAP1/gt_odometry.tum"}
+      ICE1: {bag: "ICE1/2024-11-02-21-12-51_ICE1_full.bag", gt: "ICE1/gt_odometry.tum"}
+      PIL2: {bag: "PIL2/2024-11-11-12-42-47_PIL2_full.bag", gt: "PIL2/gt_odometry.tum"}
+      SBB1: {bag: "SBB1/2024-12-03-13-15-38_SBB1_full.bag", gt: "SBB1/gt_odometry.tum"}

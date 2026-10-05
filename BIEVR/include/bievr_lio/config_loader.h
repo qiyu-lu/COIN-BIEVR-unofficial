@@ -201,6 +201,7 @@ inline void printConfigOverview(const Config& config) {
        << (hc.dashboard_ascii_path.empty() ? "<none>" : hc.dashboard_ascii_path) << "\n";
   }
   os << "  log_path:             " << (hc.log_path.empty() ? "<none>" : hc.log_path) << "\n";
+  os << "  map_path:             " << (hc.map_path.empty() ? "<none>" : hc.map_path) << "\n";
   os << "calibration (LiDAR -> IMU):\n";
   printExtrinsic(os, "T_I_L", hc.T_I_L);
   os << "==================================================";
@@ -331,6 +332,7 @@ inline bool loadConfigFromYaml(const std::vector<std::string>& yaml_paths, Confi
   hc.print_timing = yaml.get<bool>("debug", "timing", false);
   hc.print_debug = yaml.get<bool>("debug", "log", false);
   hc.log_path = yaml.get<std::string>("debug", "trajectory_path", "");
+  hc.map_path = yaml.get<std::string>("debug", "map_path", "");
 
   // --- dashboard (live status print) ---
   hc.print_dashboard = yaml.get<bool>("debug", "dashboard", false);

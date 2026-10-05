@@ -7,13 +7,15 @@ the trajectory, the log and the evaluation. Example:
   scripts/run_benchmark.py --tag coin --datasets enwide geode --jobs 3
   scripts/run_benchmark.py --tag ablation --sequences FieldS RunwayS --set intensity.enabled=false
 
-Needs a sourced workspace (the node is started through `devel/setup.bash`). A roscore is started
-for the duration of the benchmark if none is running.
+The node is started through the `devel/setup.bash` of the workspace that contains this repository.
+Every benchmark brings up its own roscore on a free port, so it neither depends on nor disturbs
+other ROS sessions.
 """
 import argparse
 import concurrent.futures
 import json
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -45,12 +47,26 @@ def parse_override(text):
     return section, key, yaml.safe_load(value)
 
 
-def master_online():
-    try:
-        import rosgraph
-        return rosgraph.is_master_online()
-    except Exception:
-        return False
+def free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("localhost", 0))
+        return s.getsockname()[1]
+
+
+def start_roscore(workspace):
+    """Starts a private roscore and returns (process, master uri)."""
+    port = free_port()
+    uri = "http://localhost:%d" % port
+    process = subprocess.Popen(
+        ["bash", "-c", "source %s/devel/setup.bash; exec roscore -p %d" % (workspace, port)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(100):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(("localhost", port)) == 0:
+                return process, uri
+        time.sleep(0.1)
+    process.terminate()
+    sys.exit("Could not start a roscore on port %d." % port)
 
 
 def collect_runs(registry, datasets, sequences, roots):
@@ -108,10 +124,10 @@ def run_sequence(run, args, workspace):
         lib_dirs = ([args.bin_dir] if args.bin_dir else []) + args.ld_library_path
         lib_prefix = ("export LD_LIBRARY_PATH=%s:$LD_LIBRARY_PATH; " % ":".join(lib_dirs)
                       if lib_dirs else "")
-        cmd = ("source %s/devel/setup.bash; %sexec %s --sensor_config_file '%s' --params_file '%s' "
-               "--bag '%s' __name:=bievr_bench_%s_%d" %
-               (workspace, lib_prefix, binary, cfg_path, args.params, run["bag"],
-                run["name"].lower(), os.getpid()))
+        cmd = ("source %s/devel/setup.bash; export ROS_MASTER_URI=%s; %sexec %s "
+               "--sensor_config_file '%s' --params_file '%s' --bag '%s' __name:=bievr_bench_%s" %
+               (workspace, args.master_uri, lib_prefix, binary, cfg_path, args.params, run["bag"],
+                run["name"].lower()))
         if os.path.exists(traj_path):
             os.remove(traj_path)
         start = time.time()
@@ -214,13 +230,9 @@ def main():
         sys.exit("Missing bags:\n  " + "\n  ".join(missing))
 
     roscore = None
-    if not args.eval_only and not master_online():
-        roscore = subprocess.Popen(["roscore"], stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.DEVNULL)
-        for _ in range(50):
-            if master_online():
-                break
-            time.sleep(0.2)
+    args.master_uri = None
+    if not args.eval_only:
+        roscore, args.master_uri = start_roscore(workspace)
 
     results = []
     try:

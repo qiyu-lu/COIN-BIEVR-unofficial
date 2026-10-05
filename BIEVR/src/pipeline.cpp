@@ -162,6 +162,15 @@ void Pipeline::processFrame(const std::vector<ImuMeasurement>& imu_data,
   const int n_photometric_points =
       config_.intensity.enabled ? optimizer.numPhotometricPoints() : -1;
   align_timer.Stop();
+  if (config_.intensity.enabled) {
+    const IntensitySamplingInfo& info = samples.intensity_info;
+    LOG(D, "Intensity: " << samples.intensity.size() << " points in "
+                         << info.intensity_voxels.size() << " of " << info.num_observed_voxels
+                         << " observed voxels, " << n_photometric_points
+                         << " photometric residuals, " << info.num_target_directions
+                         << " target direction(s), normal eigenvalues "
+                         << info.eigenvalues.transpose());
+  }
 
   // Transform the full cloud using the estimated pose and add it to the map
   timing::Timer map_timer("06_map");
@@ -497,6 +506,42 @@ IntensityPointcloud Pipeline::intensityVoxelCloud(const std::vector<size_t>& vox
     cloud[i] = points[i];
   }
   return cloud;
+}
+
+bool Pipeline::saveMap() const {
+  if (config_.map_path.empty()) return false;
+
+  std::vector<float> data;  // x, y, z, intensity per point
+  const double pixel_size = map_->pixel_size;
+  map_->forEachVoxel([&](const Voxel& voxel) {
+    const Transform T_W_C = voxel.T_C_W_.inverse();
+    const bool has_intensity = voxel.intensity_weights_.size() > 0;
+    for (int v = 0; v < voxel.bump_weights_.rows(); ++v) {
+      for (int u = 0; u < voxel.bump_weights_.cols(); ++u) {
+        if (voxel.bump_weights_(v, u) <= 0) continue;
+        const Point p_W =
+            T_W_C * Point(u * pixel_size, v * pixel_size, voxel.bump_smoothed_(v, u));
+        const float intensity = has_intensity && voxel.intensity_weights_(v, u) > 0
+                                    ? voxel.intensity_smoothed_(v, u)
+                                    : 0.f;
+        data.insert(data.end(), {static_cast<float>(p_W.x()), static_cast<float>(p_W.y()),
+                                 static_cast<float>(p_W.z()), intensity});
+      }
+    }
+  });
+
+  std::ofstream file(config_.map_path, std::ios::binary | std::ios::trunc);
+  if (!file.is_open()) {
+    LOG(E, "Could not open " << config_.map_path << " to save the map.");
+    return false;
+  }
+  const size_t n_points = data.size() / 4;
+  file << "# .PCD v0.7 - Point Cloud Data file format\nVERSION 0.7\nFIELDS x y z intensity\n"
+       << "SIZE 4 4 4 4\nTYPE F F F F\nCOUNT 1 1 1 1\nWIDTH " << n_points << "\nHEIGHT 1\n"
+       << "VIEWPOINT 0 0 0 1 0 0 0\nPOINTS " << n_points << "\nDATA binary\n";
+  file.write(reinterpret_cast<const char*>(data.data()), data.size() * sizeof(float));
+  LOG(I, "Saved map with " << n_points << " points to " << config_.map_path);
+  return true;
 }
 
 void Pipeline::logTUM(double timestamp, const Transform& pose) {

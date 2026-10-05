@@ -99,5 +99,7 @@ int main(int argc, char** argv) {
 
   ros::spin();
 
+  pipeline->saveMap();
+
   return 0;
 }

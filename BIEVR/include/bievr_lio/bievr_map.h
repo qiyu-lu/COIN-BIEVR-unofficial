@@ -69,6 +69,14 @@ class BIEVRMap {
   const Voxel* getVoxel(const size_t hash_idx) const;
   bool nearestVoxel(const Point& point, size_t& result) const;
 
+  // Calls func(const Voxel&) for every observed voxel.
+  template <typename Func>
+  void forEachVoxel(Func&& func) const {
+    for (const auto& entry : map_) {
+      if (entry.second.voxel.observed_) func(entry.second.voxel);
+    }
+  }
+
   const double& voxel_size = config_.voxel_size;
   const double& pixel_size = config_.px_size;
   const double& inv_px_size = inv_px_size_;

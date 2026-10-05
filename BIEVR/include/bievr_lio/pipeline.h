@@ -32,6 +32,8 @@ class Pipeline {
     std::string map_frame = "map";
     std::string body_frame = "body";
     std::string log_path = "";
+    // File the map is written to by saveMap() (binary PCD with one point per map pixel).
+    std::string map_path = "";
 
     size_t min_points_for_map_init = 100;
     size_t map_size_running_threshold = 5;
@@ -46,6 +48,11 @@ class Pipeline {
 
   void processFrame(const std::vector<ImuMeasurement>& imu_data,
                     const StampedIntensityPointcloud& pointcloud);
+
+  // Writes the map to Config::map_path as a binary PCD (x, y, z, intensity): one point per valid
+  // pixel, lifted onto the voxel surface, with the value of the intensity map (0 where the pixel
+  // has no intensity). Does nothing if no path is configured.
+  bool saveMap() const;
 
   template <typename T>
   void registerPublisher(std::function<void(const T&, const Header&, const std::string& topic,
