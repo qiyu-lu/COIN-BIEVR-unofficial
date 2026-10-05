@@ -22,21 +22,24 @@ struct RegistrationConfig {
   bool lm_debug_print = false;
   bool img_residual = true;
   bool img_jacobian = true;
+  // Constant lambda that scales the photometric residuals (intensity differences in [0, 255])
+  // to the magnitude of the geometric residuals [m].
+  double photo_scale = 0.002;
 };
 
-inline bool getSubPixelValue(const Voxel* voxel, const double x, const double y, double& value) {
+// Bilinear sample of a voxel image `M` at the pixel coordinates (x, y), using only the pixels
+// that are valid according to the weights `V`.
+inline bool getSubPixelValue(const Eigen::MatrixXf& M, const Eigen::MatrixXf& V, const double x,
+                             const double y, double& value) {
   int x0 = std::floor(x);
   int y0 = std::floor(y);
 
   int x1 = x0 + 1;
   int y1 = y0 + 1;
 
-  const int max_x = voxel->bump_smoothed_.cols() - 1;
-  const int max_y = voxel->bump_smoothed_.rows() - 1;
+  const int max_x = M.cols() - 1;
+  const int max_y = M.rows() - 1;
   if (x0 < 0 || y0 < 0 || x1 > max_x || y1 > max_y) return false;
-
-  const auto& M = voxel->bump_smoothed_;
-  const auto& V = voxel->bump_weights_;
 
   double dx = x - x0;
   double dy = y - y0;
@@ -57,23 +60,26 @@ inline bool getSubPixelValue(const Voxel* voxel, const double x, const double y,
   return true;
 }
 
+// Height of the voxel surface above the image plane.
+inline bool getSubPixelValue(const Voxel* voxel, const double x, const double y, double& value) {
+  return getSubPixelValue(voxel->bump_smoothed_, voxel->bump_weights_, x, y, value);
+}
+
 // Combined bilinear sample + central-difference gradient.
 // Shares floor/bounds/fraction work and reuses the 4 inner corner reads.
 // Returns false if the center 2x2 stencil is out of bounds or has no valid corners.
 // Gradients are set to 0 when their 4x2 stencil is out of bounds or has no valid corners.
-inline bool sampleValueAndGradient(const Voxel* voxel, const double x, const double y,
-                                   double& value, double& dIdx, double& dIdy) {
+inline bool sampleValueAndGradient(const Eigen::MatrixXf& M, const Eigen::MatrixXf& V,
+                                   const double x, const double y, double& value, double& dIdx,
+                                   double& dIdy) {
   const int x0 = std::floor(x);
   const int y0 = std::floor(y);
   const int x1 = x0 + 1;
   const int y1 = y0 + 1;
 
-  const int max_x = voxel->bump_smoothed_.cols() - 1;
-  const int max_y = voxel->bump_smoothed_.rows() - 1;
+  const int max_x = M.cols() - 1;
+  const int max_y = M.rows() - 1;
   if (x0 < 0 || y0 < 0 || x1 > max_x || y1 > max_y) return false;
-
-  const auto& M = voxel->bump_smoothed_;
-  const auto& V = voxel->bump_weights_;
 
   const double dx = x - x0;
   const double dy = y - y0;
@@ -152,8 +158,15 @@ inline bool sampleValueAndGradient(const Voxel* voxel, const double x, const dou
   return true;
 }
 
+inline bool sampleValueAndGradient(const Voxel* voxel, const double x, const double y,
+                                   double& value, double& dIdx, double& dIdy) {
+  return sampleValueAndGradient(voxel->bump_smoothed_, voxel->bump_weights_, x, y, value, dIdx,
+                                dIdy);
+}
+
 struct Accumulator {
   int count = 0;
+  int photo_count = 0;  // number of photometric residuals (not included in count)
   double error_sum = 0.0;
   Matrix66 H = Matrix66::Zero();
   Vector6 b = Vector6::Zero();
@@ -161,6 +174,15 @@ struct Accumulator {
 
   inline void add(double r, const Row6* J) {
     ++count;
+    addResidual(r, J);
+  }
+
+  inline void addPhotometric(double r, const Row6* J) {
+    ++photo_count;
+    addResidual(r, J);
+  }
+
+  inline void addResidual(double r, const Row6* J) {
     double abs_r = std::abs(r);
     bool inlier = abs_r <= huber_delta;
     double w = inlier ? 1.0 : huber_delta / abs_r;
@@ -176,6 +198,7 @@ struct Accumulator {
 
   inline void merge(const Accumulator& other) {
     count += other.count;
+    photo_count += other.photo_count;
     error_sum += other.error_sum;
     H += other.H;
     b += other.b;
@@ -186,8 +209,12 @@ class LsqRegistration {
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
+  // `intensities` optionally holds the filtered intensity of every source point. Points with a
+  // valid intensity (>= 0) add a photometric residual against the intensity map on top of their
+  // geometric residual.
   LsqRegistration(const BIEVRMap& map, const Pointcloud& source,
-                  const RegistrationConfig& config = RegistrationConfig());
+                  const RegistrationConfig& config = RegistrationConfig(),
+                  const std::vector<double>* intensities = nullptr);
   virtual ~LsqRegistration() = default;
 
   Transform computeTransformation(const Transform& T_W_L_init);
@@ -196,6 +223,9 @@ class LsqRegistration {
   // linearization with Jacobians (i.e. the points that actually constrained the
   // pose). Reported on the dashboard as "Effective Points".
   int numEffectivePoints() const { return num_effective_points_; }
+
+  // Number of photometric residuals in the last linearization with Jacobians.
+  int numPhotometricPoints() const { return num_photometric_points_; }
 
  private:
   bool isConverged(const Transform& delta) const;
@@ -208,9 +238,11 @@ class LsqRegistration {
   double lm_lambda_ = -1.0;
   const BIEVRMap& map_;
   const Pointcloud& points_j_;
+  const std::vector<double>* intensities_j_ = nullptr;
   std::vector<M3> skew_points_j_;
   bool converged_ = false;
   int num_effective_points_ = 0;
+  int num_photometric_points_ = 0;
 };
 
 }  // namespace bievr

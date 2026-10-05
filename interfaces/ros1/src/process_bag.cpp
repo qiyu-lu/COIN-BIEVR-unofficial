@@ -1,6 +1,7 @@
 #include <bievr_lio/common.h>
 #include <bievr_lio/log++.h>
 #include <bievr_lio/synchronizer.h>
+#include <bievr_lio/timing.h>
 #include <ros/ros.h>
 #include <rosbag/bag.h>
 #include <rosbag/view.h>
@@ -86,6 +87,7 @@ int main(int argc, char** argv) {
   LOG(I, "Done with for loop.");
   bag.close();
   LOG(I, "Bag closed");
+  LOG(I, "Timings:\n" << timing::Timing::Print());
 
   return 0;
 }

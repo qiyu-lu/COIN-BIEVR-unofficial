@@ -14,3 +14,11 @@ lidar:
 
 map:
   max_size: 600000 # Maximum number of voxels to keep in the map
+
+intensity: # Livox Avia (non-repetitive scan pattern, 70.4 x 77.2 deg field of view)
+  image_width: 900 # Horizontal resolution of the intensity image (360 deg)
+  image_height: 200 # Vertical resolution of the intensity image
+  fov_up_deg: 40 # Elevation of the upper image border [deg]
+  fov_down_deg: -40 # Elevation of the lower image border [deg]
+  scale: 1.0 # Scale applied to the raw reflectivity
+  window: [37, 13] # Brightness normalization window [px] (width, height)

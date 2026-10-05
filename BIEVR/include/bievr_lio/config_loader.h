@@ -7,7 +7,7 @@
 // The ROS layer only carries the *paths* of the files to load.
 //
 // The YAML is organised into sections (topics / calibration / lidar / imu /
-// map / preprocess / optimization / debug). Files are
+// map / preprocess / optimization / intensity / debug). Files are
 // layered: callers pass {params, sensor_config} and the later file wins on a
 // per-leaf basis, so the sensor config wins on any leaf both files define and a
 // section that appears in both (e.g. `imu`) merges by key.
@@ -163,6 +163,29 @@ inline void printConfigOverview(const Config& config) {
   os << "  huber_delta:          " << hc.registration.huber_delta << "\n";
   os << "  img_residual:         " << yn(hc.registration.img_residual) << "\n";
   os << "  img_jacobian:         " << yn(hc.registration.img_jacobian) << "\n";
+  os << "intensity:\n";
+  os << "  enabled:              " << yn(hc.intensity.enabled) << "\n";
+  if (hc.intensity.enabled) {
+    const auto& ic = hc.intensity;
+    os << "  image (w x h):        " << ic.image_width << " x " << ic.image_height << "\n";
+    if (ic.pixel_shift_by_row.empty()) {
+      os << "  projection:           spherical, elevation [" << ic.fov_down_deg << ", "
+         << ic.fov_up_deg << "] deg\n";
+    } else {
+      os << "  projection:           point-to-pixel lookup\n";
+    }
+    os << "  scale:                " << ic.scale << "\n";
+    os << "  window (w x h):       " << ic.window_width << " x " << ic.window_height << "\n";
+    os << "  brightness_scale:     " << ic.brightness_scale << "\n";
+    os << "  line_removal:         "
+       << yn(!ic.line_highpass.empty() && !ic.line_lowpass.empty()) << "\n";
+    os << "  min_range_m:          " << ic.min_range << "\n";
+    os << "  max_range_m:          " << ic.max_range << "\n";
+    os << "  num_voxels:           " << ic.num_voxels << "\n";
+    os << "  degeneracy_ratio:     " << ic.degeneracy_ratio << "\n";
+    os << "  photo_scale:          " << hc.registration.photo_scale << "\n";
+    os << "  smooth:               " << yn(hc.map.smooth_intensity) << "\n";
+  }
   os << "imu:\n";
   os << "  window_s:             " << hc.imu.window_length_s << "\n";
   os << "  t_init:               " << hc.imu.t_init << "\n";
@@ -245,6 +268,52 @@ inline bool loadConfigFromYaml(const std::vector<std::string>& yaml_paths, Confi
   }
   hc.registration.img_residual = yaml.get<bool>("optimization", "img_residual", true);
   hc.registration.img_jacobian = yaml.get<bool>("optimization", "img_jacobian", true);
+
+  // --- intensity ---
+  // Intensity processing (sensor specific), map-informed intensity point sampling and the
+  // weight of the photometric residuals. Disabled unless requested, in which case the pipeline
+  // is purely geometric.
+  auto& ic = hc.intensity;
+  ic.enabled = yaml.get<bool>("intensity", "enabled", false);
+  int num_voxels = 0;
+  const std::vector<int> window = yaml.get<std::vector<int>>("intensity", "window", {41, 7});
+  if (!config_internal::getPositive(yaml, "intensity", "image_width", 1024, ic.image_width) ||
+      !config_internal::getPositive(yaml, "intensity", "image_height", 128, ic.image_height) ||
+      !config_internal::getPositive(yaml, "intensity", "scale", 1.0, ic.scale) ||
+      !config_internal::getPositive(yaml, "intensity", "brightness_scale", 140.0,
+                                    ic.brightness_scale) ||
+      !config_internal::getPositive(yaml, "intensity", "max_range_m", 100.0, ic.max_range) ||
+      !config_internal::getPositive(yaml, "intensity", "num_voxels", 100, num_voxels) ||
+      !config_internal::getPositive(yaml, "intensity", "degeneracy_ratio", 10.0,
+                                    ic.degeneracy_ratio) ||
+      !config_internal::getPositive(yaml, "intensity", "photo_scale", 0.002,
+                                    hc.registration.photo_scale)) {
+    return false;
+  }
+  ic.num_voxels = static_cast<size_t>(num_voxels);
+  ic.min_range = yaml.get<double>("intensity", "min_range_m", 0.0);
+  ic.fov_up_deg = yaml.get<double>("intensity", "fov_up_deg", 45.0);
+  ic.fov_down_deg = yaml.get<double>("intensity", "fov_down_deg", -45.0);
+  ic.pixel_shift_by_row = yaml.get<std::vector<int>>("intensity", "pixel_shift_by_row", {});
+  ic.line_highpass = yaml.get<std::vector<double>>("intensity", "line_highpass", {});
+  ic.line_lowpass = yaml.get<std::vector<double>>("intensity", "line_lowpass", {});
+  hc.map.smooth_intensity = yaml.get<bool>("intensity", "smooth", true);
+  if (window.size() != 2 || window[0] <= 0 || window[1] <= 0) {
+    LOG(E, "Config error: 'intensity.window' must hold two positive sizes [width, height].");
+    return false;
+  }
+  ic.window_width = window[0];
+  ic.window_height = window[1];
+  if (ic.fov_up_deg <= ic.fov_down_deg) {
+    LOG(E, "Config error: 'intensity.fov_up_deg' must be larger than 'intensity.fov_down_deg'.");
+    return false;
+  }
+  if (!ic.pixel_shift_by_row.empty() &&
+      static_cast<int>(ic.pixel_shift_by_row.size()) != ic.image_height) {
+    LOG(E, "Config error: 'intensity.pixel_shift_by_row' must have one entry per image row ("
+               << ic.image_height << "), got " << ic.pixel_shift_by_row.size() << ".");
+    return false;
+  }
 
   // --- imu (params side: inertial window + normalization) ---
   if (!config_internal::getPositive(yaml, "imu", "window_s", 10., hc.imu.window_length_s) ||

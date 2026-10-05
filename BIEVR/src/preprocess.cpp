@@ -1,5 +1,7 @@
 #include "bievr_lio/preprocess.h"
 
+#include <Eigen/Eigenvalues>
+
 #include "unordered_dense/unordered_dense.h"
 
 namespace bievr {
@@ -25,7 +27,8 @@ struct VoxelScore {
 
 }  // namespace
 
-void voxelDownsample(const Pointcloud& points_raw, Pointcloud& points_down, double voxel_size) {
+void voxelDownsample(const Pointcloud& points_raw, Pointcloud& points_down, double voxel_size,
+                     std::vector<size_t>* indices) {
   std::vector<VoxelDownsampleEntry> voxel_entries(points_raw.size());
 
   tbb::parallel_for(
@@ -63,14 +66,26 @@ void voxelDownsample(const Pointcloud& points_raw, Pointcloud& points_down, doub
                         points_down[i] = points_raw[selected_indices[i]];
                       }
                     });
+
+  if (indices) {
+    *indices = std::move(selected_indices);
+  }
 }
 
 void sampleInformed(const BIEVRMap& map, const Transform& T_W_L, const Pointcloud& points_raw,
                     Pointcloud& points_coarse, Pointcloud& points_fine, double voxel_size,
-                    size_t n_samples) {
+                    size_t n_samples, std::vector<size_t>* coarse_indices,
+                    std::vector<size_t>* fine_indices) {
+  if (coarse_indices) coarse_indices->clear();
+  if (fine_indices) fine_indices->clear();
+
   if (points_raw.size() <= n_samples) {
     points_coarse.resize(points_raw.size());
     points_coarse.data().topRows(3) = points_raw.data().topRows(3);
+    if (coarse_indices) {
+      coarse_indices->resize(points_raw.size());
+      for (size_t idx = 0; idx < points_raw.size(); ++idx) (*coarse_indices)[idx] = idx;
+    }
     return;
   }
 
@@ -163,6 +178,117 @@ void sampleInformed(const BIEVRMap& map, const Transform& T_W_L, const Pointclou
                         points_coarse[idx - n_informed] = points_raw[voxel_scores[idx].idx];
                       }
                     });
+
+  if (coarse_indices) {
+    coarse_indices->resize(n_coarse);
+    for (size_t idx = n_informed; idx < voxel_scores.size(); ++idx) {
+      (*coarse_indices)[idx - n_informed] = voxel_scores[idx].idx;
+    }
+  }
+  if (fine_indices) {
+    *fine_indices = std::move(informed_indices);
+  }
+}
+
+void sampleIntensity(const BIEVRMap& map, const Transform& T_W_L, const Pointcloud& points,
+                     const std::vector<double>& intensities, const IntensityConfig& config,
+                     std::vector<size_t>& selected, IntensitySamplingInfo* info) {
+  selected.clear();
+  IntensitySamplingInfo local_info;
+  IntensitySamplingInfo& result = info ? *info : local_info;
+  result = IntensitySamplingInfo();
+  if (points.empty()) return;
+
+  // Group the points by the voxel they fall into under the registration prior.
+  std::vector<VoxelHashIdx> voxel_entries(points.size());
+  tbb::parallel_for(tbb::blocked_range<size_t>(0, points.size()),
+                    [&](const tbb::blocked_range<size_t>& r) {
+                      for (size_t idx = r.begin(); idx != r.end(); ++idx) {
+                        const Point p_w = T_W_L.linear() * points[idx] + T_W_L.translation();
+                        voxel_entries[idx] = {map.hashIndex(p_w), idx};
+                      }
+                    });
+  tbb::parallel_sort(voxel_entries.begin(), voxel_entries.end(),
+                     [](const VoxelHashIdx& a, const VoxelHashIdx& b) {
+                       return std::tie(a.hash, a.idx) < std::tie(b.hash, b.idx);
+                     });
+
+  // Start of every voxel group in voxel_entries, restricted to the voxels observed in the map.
+  struct ObservedVoxel {
+    const Voxel* voxel;
+    size_t begin;
+    size_t end;
+  };
+  std::vector<ObservedVoxel> observed;
+  for (size_t begin = 0; begin < voxel_entries.size();) {
+    size_t end = begin + 1;
+    while (end < voxel_entries.size() && voxel_entries[end].hash == voxel_entries[begin].hash) {
+      ++end;
+    }
+    if (const Voxel* voxel = map.getVoxel(voxel_entries[begin].hash)) {
+      observed.push_back({voxel, begin, end});
+    }
+    begin = end;
+  }
+  result.num_observed_voxels = observed.size();
+  if (observed.empty()) return;
+
+  // The distribution of the observed voxel normals approximates the geometric information of
+  // the registration. Directions with small eigenvalues are underconstrained.
+  M3 A = M3::Zero();
+  for (const ObservedVoxel& entry : observed) {
+    const V3 normal = entry.voxel->T_C_W_.linear().row(2);
+    A += normal * normal.transpose();
+  }
+  const Eigen::SelfAdjointEigenSolver<M3> solver(A);
+  result.eigenvalues = solver.eigenvalues();
+  result.eigenvectors = solver.eigenvectors();
+  // One (e.g. tunnels) or two (e.g. flat areas) unconstrained directions.
+  const bool two_directions =
+      config.degeneracy_ratio * result.eigenvalues(0) > result.eigenvalues(1);
+  result.num_target_directions = two_directions ? 2 : 1;
+
+  // Contribution of every voxel: projection of the target directions onto the informative
+  // directions of its intensity map. The eigenvector signs are arbitrary and the intensity
+  // information is unsigned, so the directions are projected by magnitude.
+  struct VoxelContribution {
+    double contribution;
+    size_t observed_idx;
+  };
+  std::vector<VoxelContribution> contributions;
+  contributions.reserve(observed.size());
+  for (size_t i = 0; i < observed.size(); ++i) {
+    const Voxel& voxel = *observed[i].voxel;
+    if (voxel.intensity_weights_.size() == 0) continue;
+    double contribution = 0.0;
+    for (int k = 0; k < result.num_target_directions; ++k) {
+      const V3 direction_C = voxel.T_C_W_.linear() * result.eigenvectors.col(k);
+      contribution += direction_C.head<2>().cwiseAbs().dot(voxel.intensity_info_);
+    }
+    if (contribution > 0.0) {
+      contributions.push_back({contribution, i});
+    }
+  }
+
+  const size_t n_select = std::min(config.num_voxels, contributions.size());
+  std::partial_sort(contributions.begin(), contributions.begin() + n_select, contributions.end(),
+                    [](const VoxelContribution& a, const VoxelContribution& b) {
+                      return std::tie(b.contribution, a.observed_idx) <
+                             std::tie(a.contribution, b.observed_idx);
+                    });
+
+  // Keep the points with a valid intensity inside the selected intensity voxels.
+  result.intensity_voxels.reserve(n_select);
+  for (size_t i = 0; i < n_select; ++i) {
+    const ObservedVoxel& entry = observed[contributions[i].observed_idx];
+    result.intensity_voxels.push_back(voxel_entries[entry.begin].hash);
+    for (size_t j = entry.begin; j < entry.end; ++j) {
+      const size_t idx = voxel_entries[j].idx;
+      if (intensities[idx] >= 0.0) {
+        selected.push_back(idx);
+      }
+    }
+  }
 }
 
 }  // namespace bievr

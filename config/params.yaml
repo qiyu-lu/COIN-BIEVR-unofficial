@@ -15,6 +15,14 @@ preprocess:
 optimization:
   huber_delta: 0.1 # Huber norm threshold
 
+intensity:
+  enabled: True # Use the LiDAR intensity as additional modality (False: purely geometric BIEVR-LIO)
+  num_voxels: 100 # Number of voxels with the most informative intensity that intensity points are sampled from
+  photo_scale: 0.002 # Scale of the photometric residuals (intensity in [0, 255]) relative to the geometric residuals [m]
+  smooth: True # Apply smoothing to the voxel intensity map
+  # The intensity image used for the brightness normalization is sensor specific and is set in the
+  # sensor config (image_width, image_height, fov_up_deg, fov_down_deg, scale, window, ...).
+
 imu:  
     window_s: 10 # Time window for the inertial optimization [s]
     t_init: 0.2 # Time to initialize bias and gravity [s]

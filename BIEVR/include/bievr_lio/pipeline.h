@@ -5,6 +5,7 @@
 
 #include "bievr_lio/bievr_map.h"
 #include "bievr_lio/imu_integrator.h"
+#include "bievr_lio/intensity.h"
 #include "bievr_lio/log++.h"
 #include "bievr_lio/ls_optimizer.h"
 #include "bievr_lio/preprocess.h"
@@ -20,6 +21,7 @@ class Pipeline {
     ImuConfig imu;
     RegistrationConfig registration;
     BIEVRMap::Config map;
+    IntensityConfig intensity;
     bool print_timing = false;
     bool publish_all_clouds = false;
     bool print_debug = false;      // when true, lower the log level to show DEBUG messages
@@ -60,12 +62,25 @@ class Pipeline {
   enum class Phase { NeedBias, NeedMap, Running };
 
   // Pipeline helpers
-  bool initializeBias(const std::vector<ImuMeasurement>& imu_data, const Pointcloud& pointcloud);
+  bool initializeBias(const std::vector<ImuMeasurement>& imu_data, const Pointcloud& pointcloud,
+                      const IntensityView& intensities);
   void tryInitMap(uint64_t stamp, const State& x_j_pred, const Transform& T_W_I_init,
                   const Pointcloud& undistorted, const IntensityView& intensities,
                   std::vector<double>& ranges, const Header& header);
-  void sampleSource(const Pointcloud& undistorted, const Transform& T_W_I_init,
-                    Pointcloud& filtered, Pointcloud& coarse, Pointcloud& fine) const;
+  // Points used for the registration. With intensity enabled, `filtered` is the union of the
+  // geometric samples and the intensity points; `filtered_intensities` then holds the filtered
+  // intensity of the intensity points (kInvalidIntensity for all other points).
+  struct SourceSamples {
+    Pointcloud filtered;
+    Pointcloud coarse;
+    Pointcloud fine;
+    Pointcloud intensity;
+    std::vector<double> filtered_intensities;
+    std::vector<double> intensity_values;  // aligned with `intensity`
+    IntensitySamplingInfo intensity_info;
+  };
+  void sampleSource(const Pointcloud& undistorted, const IntensityView& intensities,
+                    const Transform& T_W_I_init, SourceSamples& samples) const;
 
   // State and optimization management
   bool addState(const uint64_t time, const Quaternion& quat, const V3& p, const V3& v);
@@ -85,14 +100,15 @@ class Pipeline {
   }
 
   void publishFrame(const Header& header, const Transform& T_W_I, const Pointcloud& full_registered,
-                    const Pointcloud& source_filtered, const Pointcloud& source_coarse,
-                    const Pointcloud& source_fine, const Pointcloud& undistorted,
+                    const SourceSamples& samples, const Pointcloud& undistorted,
                     const IntensityView& intensities);
   void publishLatestState(const Header& header);
-  void publishDebugClouds(const Pointcloud& source_filtered, const Pointcloud& source_coarse,
-                          const Pointcloud& source_fine, const Pointcloud& undistorted_cloud,
+  void publishDebugClouds(const SourceSamples& samples, const Pointcloud& undistorted_cloud,
                           const IntensityView& intensities, const Transform& T_W_I,
                           const Header& header);
+
+  // Intensity maps of the given voxels as a cloud (one point per valid pixel), for visualization.
+  IntensityPointcloud intensityVoxelCloud(const std::vector<size_t>& voxel_hashes) const;
 
   // Logging
   void logTUM(double timestamp, const Transform& pose);
@@ -104,6 +120,7 @@ class Pipeline {
   size_t seq_counter_ = 0;
   Phase phase_ = Phase::NeedBias;
   std::unique_ptr<BiasInitializer> bias_initializer_;
+  std::unique_ptr<IntensityProcessor> intensity_processor_;
   std::shared_ptr<BIEVRMap> map_;
   V3 acc_bias_ = V3::Zero();
   V3 gyro_bias_ = V3::Zero();

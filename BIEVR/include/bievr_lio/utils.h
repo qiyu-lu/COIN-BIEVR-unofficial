@@ -66,6 +66,7 @@ std::vector<Point> getNeighborOffsets(double voxel_size);
 // integrate it and the elapsed time.
 struct DashboardState {
   std::string ascii;
+  std::string title = "BIEVR-LIO";
   double trajectory_length = 0.0;
   V3 last_position = V3::Zero();
   bool has_last_position = false;
@@ -81,9 +82,10 @@ void printDashboardBanner(const std::string& ascii, const std::string& message);
 // `stamp_ns` is the sensor time of the current frame; `velocity` is in the world
 // frame; `comp_mean_s`/`comp_max_s` are the per-step computation time stats in
 // seconds. `state` accumulates the trajectory length / elapsed-time reference.
+// `n_intensity_points` is the number of photometric residuals (hidden if negative).
 void printDashboard(DashboardState& state, uint64_t stamp_ns, const Transform& T_W_I,
                     const V3& velocity, const V3& acc_bias, const V3& gyro_bias, double comp_mean_s,
-                    double comp_max_s, int n_effective_points);
+                    double comp_max_s, int n_effective_points, int n_intensity_points = -1);
 
 }  // namespace bievr
 

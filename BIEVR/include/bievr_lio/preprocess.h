@@ -3,6 +3,7 @@
 
 #include "bievr_lio/bievr_map.h"
 #include "bievr_lio/common.h"
+#include "bievr_lio/intensity.h"
 
 namespace bievr {
 
@@ -14,11 +15,33 @@ struct PreprocessConfig {
   double downsample_resolution = 0.1;  // meters
 };
 
-void voxelDownsample(const Pointcloud& points_raw, Pointcloud& points_down, double voxel_size);
+// `indices` optionally returns the index in points_raw of every downsampled point.
+void voxelDownsample(const Pointcloud& points_raw, Pointcloud& points_down, double voxel_size,
+                     std::vector<size_t>* indices = nullptr);
 
+// `coarse_indices` / `fine_indices` optionally return the index in points_raw of every sampled
+// point.
 void sampleInformed(const BIEVRMap& map, const Transform& T_W_L, const Pointcloud& points_raw,
                     Pointcloud& points_coarse, Pointcloud& points_fine, double voxel_size,
-                    size_t n_samples);
+                    size_t n_samples, std::vector<size_t>* coarse_indices = nullptr,
+                    std::vector<size_t>* fine_indices = nullptr);
+
+// Outcome of the degeneracy analysis behind the intensity point sampling.
+struct IntensitySamplingInfo {
+  V3 eigenvalues = V3::Zero();       // of the observed voxel normal distribution, ascending
+  M3 eigenvectors = M3::Identity();  // matching eigenvectors as columns (map frame)
+  int num_target_directions = 0;     // geometrically uninformative directions (0, 1 or 2)
+  size_t num_observed_voxels = 0;
+  std::vector<size_t> intensity_voxels;  // hashes of the selected intensity voxels
+};
+
+// Map-informed intensity point sampling. Finds the geometrically underconstrained directions
+// from the normals of the map voxels the cloud observes under the registration prior T_W_L, and
+// selects the voxels whose intensity maps are most informative along these directions. Returns
+// the indices of the points with a valid intensity that fall into the selected voxels.
+void sampleIntensity(const BIEVRMap& map, const Transform& T_W_L, const Pointcloud& points,
+                     const std::vector<double>& intensities, const IntensityConfig& config,
+                     std::vector<size_t>& selected, IntensitySamplingInfo* info = nullptr);
 
 template <typename T>
 concept HasStamp = requires(T t) {

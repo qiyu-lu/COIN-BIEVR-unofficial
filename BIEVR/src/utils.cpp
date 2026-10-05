@@ -48,7 +48,7 @@ void printDashboardBanner(const std::string& ascii, const std::string& message) 
 
 void printDashboard(DashboardState& state, uint64_t stamp_ns, const Transform& T_W_I,
                     const V3& velocity, const V3& acc_bias, const V3& gyro_bias, double comp_mean_s,
-                    double comp_max_s, int n_effective_points) {
+                    double comp_max_s, int n_effective_points, int n_intensity_points) {
   // Accumulate the travelled distance from the previous reported position.
   const V3 position = T_W_I.translation();
   if (state.has_last_position) {
@@ -76,7 +76,7 @@ void printDashboard(DashboardState& state, uint64_t stamp_ns, const Transform& T
     out << state.ascii << "\n";
   }
   out << rule << "\n";
-  out << row("BIEVR-LIO  " + std::string(time_buf) + "  Elapsed: " + dashFmt(elapsed_s) + " s")
+  out << row(state.title + "  " + std::string(time_buf) + "  Elapsed: " + dashFmt(elapsed_s) + " s")
       << "\n";
   out << rule << "\n";
   out << row("Position (x,y,z)    [m]   : " + dashFmt(position.x()) + " " + dashFmt(position.y()) +
@@ -98,6 +98,9 @@ void printDashboard(DashboardState& state, uint64_t stamp_ns, const Transform& T
       << "\n";
   out << rule << "\n";
   out << row("Effective Points      [#] : " + std::to_string(n_effective_points)) << "\n";
+  if (n_intensity_points >= 0) {
+    out << row("Intensity Points      [#] : " + std::to_string(n_intensity_points)) << "\n";
+  }
   out << row("Computation Time     [ms] : Avg: " + dashMs(comp_mean_s) +
              " Max: " + dashMs(comp_max_s))
       << "\n";

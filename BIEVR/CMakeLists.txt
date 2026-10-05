@@ -13,6 +13,10 @@ option(BUILD_SHARED_LIBS "Build bievr_lio as a shared library" ON)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# Keep the directories of the linked libraries (e.g. a Ceres installed outside of the system
+# paths) in the RUNPATH of the installed library, so it is found without LD_LIBRARY_PATH.
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+
 # ---------------------------------------------------------------------------
 # Dependencies
 #
@@ -34,6 +38,7 @@ add_library(${PROJECT_NAME}
   src/pipeline.cpp
   src/imu_integrator.cpp
   src/inertial_factor.cpp
+  src/intensity.cpp
   src/ls_optimizer.cpp
   src/preprocess.cpp
   src/prior_factor.cpp

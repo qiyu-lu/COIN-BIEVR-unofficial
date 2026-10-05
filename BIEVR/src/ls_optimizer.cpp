@@ -12,8 +12,9 @@
 namespace bievr {
 
 LsqRegistration::LsqRegistration(const BIEVRMap& map, const Pointcloud& source,
-                                 const RegistrationConfig& config)
-    : config_(config), map_(map), points_j_(source) {}
+                                 const RegistrationConfig& config,
+                                 const std::vector<double>* intensities)
+    : config_(config), map_(map), points_j_(source), intensities_j_(intensities) {}
 
 Transform LsqRegistration::computeTransformation(const Transform& T_W_L_init) {
   Transform x0 = T_W_L_init;
@@ -81,38 +82,61 @@ double LsqRegistration::linearize(const Transform& T_W_L, Matrix66* H, Vector6* 
           const double x = p_o.x() * inv_size;
           const double y = p_o.y() * inv_size;
 
+          // Photometric residual of intensity points: difference between the filtered point
+          // intensity and the intensity map of the voxel.
+          const double intensity_j = intensities_j_ ? (*intensities_j_)[i] : kInvalidIntensity;
+          const bool photometric = intensity_j >= 0.0 && voxel->intensity_weights_.size() > 0;
+
           double I = 0.0;
 
           if (!compute_jacobians) {
-            if (config_.img_residual) {
-              if (!getSubPixelValue(voxel, x, y, I)) continue;
+            if (!config_.img_residual || getSubPixelValue(voxel, x, y, I)) {
+              const double r = p_o.z() - I;
+              local_acc.add(r, nullptr);
             }
-            const double r = p_o.z() - I;
-            local_acc.add(r, nullptr);
+            double I_photo = 0.0;
+            if (photometric && getSubPixelValue(voxel->intensity_smoothed_,
+                                                voxel->intensity_weights_, x, y, I_photo)) {
+              local_acc.addPhotometric(config_.photo_scale * (intensity_j - I_photo), nullptr);
+            }
             continue;
-          }
-
-          double dIdx = 0.0;
-          double dIdy = 0.0;
-          if (config_.img_residual) {
-            if (!sampleValueAndGradient(voxel, x, y, I, dIdx, dIdy)) continue;
           }
 
           Eigen::Matrix<double, 3, 6> SE3_Jac;
           SE3_Jac.block<3, 3>(0, 3) = R_o_j;  // d p_o / d t
           SE3_Jac.block<3, 3>(0, 0).noalias() = -R_o_j * skew_points_j_[i];
 
-          Eigen::Matrix<double, 1, 2> I_Jac;
-          if (config_.img_jacobian) {
-            I_Jac(0, 0) = dIdx;
-            I_Jac(0, 1) = dIdy;
-            I_Jac *= inv_size;
+          double dIdx = 0.0;
+          double dIdy = 0.0;
+          if (!config_.img_residual || sampleValueAndGradient(voxel, x, y, I, dIdx, dIdy)) {
+            Eigen::Matrix<double, 1, 2> I_Jac = Eigen::Matrix<double, 1, 2>::Zero();
+            if (config_.img_jacobian) {
+              I_Jac(0, 0) = dIdx;
+              I_Jac(0, 1) = dIdy;
+              I_Jac *= inv_size;
+            }
+
+            Row6 J = SE3_Jac.row(2) - (I_Jac * SE3_Jac.topRows<2>());
+
+            const double r = p_o.z() - I;
+            local_acc.add(r, &J);
           }
 
-          Row6 J = SE3_Jac.row(2) - (I_Jac * SE3_Jac.topRows<2>());
+          double I_photo = 0.0;
+          double dIdx_photo = 0.0;
+          double dIdy_photo = 0.0;
+          if (photometric &&
+              sampleValueAndGradient(voxel->intensity_smoothed_, voxel->intensity_weights_, x, y,
+                                     I_photo, dIdx_photo, dIdy_photo)) {
+            Eigen::Matrix<double, 1, 2> I_Jac;
+            I_Jac << dIdx_photo, dIdy_photo;
+            I_Jac *= config_.photo_scale * inv_size;
 
-          const double r = p_o.z() - I;
-          local_acc.add(r, &J);
+            Row6 J = -(I_Jac * SE3_Jac.topRows<2>());
+
+            const double r = config_.photo_scale * (intensity_j - I_photo);
+            local_acc.addPhotometric(r, &J);
+          }
         }
 
         return local_acc;
@@ -129,6 +153,7 @@ double LsqRegistration::linearize(const Transform& T_W_L, Matrix66* H, Vector6* 
     // Remember how many points contributed correspondences in this (Jacobian)
     // linearization so the pipeline can report the effective point count.
     num_effective_points_ = total.count;
+    num_photometric_points_ = total.photo_count;
   }
 
   return total.error_sum;

@@ -40,6 +40,8 @@ using Intensities = Eigen::Matrix<double, 1, Eigen::Dynamic>;
 using RowView = Eigen::Map<const Intensities, 0, Eigen::InnerStride<>>;
 using TimeView = RowView;
 using IntensityView = RowView;
+// Intensity of points without a usable intensity measurement. Valid intensities are >= 0.
+inline constexpr double kInvalidIntensity = -1.0;
 
 template <typename T>
 inline constexpr int dim_v = T::RowsAtCompileTime;
