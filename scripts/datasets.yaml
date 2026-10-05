@@ -1,0 +1,33 @@
+# Sequences used by run_benchmark.py.
+#
+# `roots` holds the machine-specific dataset locations; override one from the command line with
+#   run_benchmark.py --root enwide=/path/to/ENWIDE
+# Every sequence names its bag and ground truth relative to the root of its dataset, the sensor
+# config to run it with and (for total-station ground truths) the lever arm of the tracked prism
+# expressed in the IMU frame. `time_offset: auto` estimates the clock offset between the ground
+# truth and the sensors during the evaluation.
+roots:
+  enwide: "/home/sd101t/Downloads/backups/datasets/ENWIDE Dataset"
+  geode: "/home/sd101t/Downloads/backups/datasets/GEODE Dataset/gamma"
+  grandtour: "/media/sd101t/LiWeishuaiA/dataset/grandtour"
+
+datasets:
+  enwide:
+    sensor_config: enwide
+    lever_arm: [-0.006253, 0.011775, 0.10825] # prism_imu_extrinsics.txt (T_imu_prism)
+    sequences:
+      IntersectionS: {bag: "Intersection_s/2023-08-09-16-19-09-intersection_s.bag", gt: "Intersection_s/gt-intersection_s.csv"}
+      IntersectionD: {bag: "Intersection_d/2023-08-09-17-58-11-intersection_d.bag", gt: "Intersection_d/gt-intersection_d.csv"}
+      RunwayS: {bag: "RunwayS/2023-08-09-18-44-24-runway_s.bag", gt: "RunwayS/gt-runway_s.csv"}
+      RunwayD: {bag: "RunwayD/2023-08-09-18-52-05-runway_d.bag", gt: "RunwayD/gt-runway_d.csv"}
+      FieldS: {bag: "FieldS/2023-08-09-19-05-05-field_s.bag", gt: "FieldS/gt-field_s.csv"}
+      FieldD: {bag: "FieldD/2023-08-09-19-25-45-field_d.bag", gt: "FieldD/gt-field_d.csv"}
+      KatzenseeS: {bag: "KatzenseeS/2023-08-21-10-20-22-katzensee_s.bag", gt: "KatzenseeS/gt-katzensee_s.csv"}
+      KatzenseeD: {bag: "KatzenseeD/2023-08-21-10-29-20-katzensee_d.bag", gt: "KatzenseeD/gt-katzensee_d.csv"}
+  geode:
+    sensor_config: gamma
+    time_offset: auto # total-station clock is offset from the sensor clock by ~2 s
+    sequences:
+      Shield1: {bag: "bag/Shield_tunnel1_gamma.bag", gt: "groundtruth/traj/Shield_tunnel1.txt"}
+      Shield4: {bag: "bag/Shield_tunnel4_gamma.bag", gt: "groundtruth/traj/Shield_tunnel4.txt"}
+      Shield5: {bag: "bag/Shield_tunnel5_gamma.bag", gt: "groundtruth/traj/Shield_tunnel5.txt"}
