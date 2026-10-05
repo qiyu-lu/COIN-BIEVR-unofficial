@@ -32,6 +32,14 @@ so it also works for sensors with irregular scan patterns.
 The geometric pipeline is untouched: with `intensity.enabled: False` the estimator is BIEVR-LIO and
 produces bit-identical trajectories.
 
+<p align="center">
+  <img width='100%' src="doc/slam_demo.gif">
+</p>
+<p align="center">
+  <em>COIN-BIEVR running on the GEODE <code>Shield_tunnel1_gamma</code> sequence (Livox Avia).
+  Left: voxel-wise intensity map in RViz; right: online state estimate and timing.</em>
+</p>
+
 # Results
 
 Absolute Trajectory Error (RMSE in meters) on the sequences of Table I of the paper that were
