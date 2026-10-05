@@ -109,6 +109,7 @@ int main(int argc, char** argv) {
       });
 
   rclcpp::spin(node);
+  pipeline->saveMap();
   rclcpp::shutdown();
   return 0;
 }

@@ -99,6 +99,7 @@ int main(int argc, char** argv) {
   LOG(I, "Done with bag.");
   reader.close();
   LOG(I, "Bag closed");
+  pipeline->saveMap();
 
   rclcpp::shutdown();
   return 0;

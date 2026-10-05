@@ -6,6 +6,7 @@ the trajectory, the log and the evaluation. Example:
 
   scripts/run_benchmark.py --tag coin --datasets enwide geode --jobs 3
   scripts/run_benchmark.py --tag ablation --sequences FieldS RunwayS --set intensity.enabled=false
+  scripts/run_benchmark.py --tag maps --sequences FieldS --set debug.map_path={out_dir}/map.pcd
 
 The node is started through the `devel/setup.bash` of the workspace that contains this repository.
 Every benchmark brings up its own roscore on a free port, so it neither depends on nor disturbs
@@ -15,6 +16,8 @@ import argparse
 import concurrent.futures
 import json
 import os
+import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -44,6 +47,8 @@ def parse_override(text):
     section, _, key = name.partition(".")
     if not section or not key or not _:
         raise argparse.ArgumentTypeError("override must look like section.key=value: %r" % text)
+    if "{out_dir}" in value:  # path placeholder, not YAML
+        return section, key, value
     return section, key, yaml.safe_load(value)
 
 
@@ -67,6 +72,19 @@ def start_roscore(workspace):
         time.sleep(0.1)
     process.terminate()
     sys.exit("Could not start a roscore on port %d." % port)
+
+
+def parse_log(log_path):
+    """Per-scan processing time of the pipeline ("step" timer) from the timing table in the log."""
+    stats = {}
+    pattern = re.compile(r"^step\s+(\d+)\s+\S+\s+\((\S+) \+- \S+\)\s+\[\S+,(\S+)\]")
+    with open(log_path, errors="ignore") as f:
+        for line in f:
+            match = pattern.match(line)
+            if match:
+                stats["step_mean_ms"] = 1e3 * float(match.group(2))
+                stats["step_max_ms"] = 1e3 * float(match.group(3))
+    return stats
 
 
 def collect_runs(registry, datasets, sequences, roots):
@@ -110,6 +128,8 @@ def run_sequence(run, args, workspace):
         for section, values in run["overrides"].items():
             cfg.setdefault(section, {}).update(values)
         for section, key, value in args.set:
+            if isinstance(value, str):
+                value = value.replace("{out_dir}", out_dir)
             cfg.setdefault(section, {})[key] = value
         debug = cfg.setdefault("debug", {})
         debug["trajectory_path"] = traj_path
@@ -124,10 +144,14 @@ def run_sequence(run, args, workspace):
         lib_dirs = ([args.bin_dir] if args.bin_dir else []) + args.ld_library_path
         lib_prefix = ("export LD_LIBRARY_PATH=%s:$LD_LIBRARY_PATH; " % ":".join(lib_dirs)
                       if lib_dirs else "")
-        cmd = ("source %s/devel/setup.bash; export ROS_MASTER_URI=%s; %sexec %s "
+        # GNU time reports the peak memory of the node.
+        rss_path = os.path.join(out_dir, "max_rss_kb.txt")
+        time_prefix = ("%s -f %%M -o '%s' " % (shutil.which("time"), rss_path)
+                       if shutil.which("time") else "")
+        cmd = ("source %s/devel/setup.bash; export ROS_MASTER_URI=%s; %sexec %s%s "
                "--sensor_config_file '%s' --params_file '%s' --bag '%s' __name:=bievr_bench_%s" %
-               (workspace, args.master_uri, lib_prefix, binary, cfg_path, args.params, run["bag"],
-                run["name"].lower()))
+               (workspace, args.master_uri, lib_prefix, time_prefix, binary, cfg_path, args.params,
+                run["bag"], run["name"].lower()))
         if os.path.exists(traj_path):
             os.remove(traj_path)
         start = time.time()
@@ -135,14 +159,18 @@ def run_sequence(run, args, workspace):
             proc = subprocess.run(["bash", "-c", cmd], stdout=log, stderr=subprocess.STDOUT)
         result["wall_time_s"] = time.time() - start
         result["exit_code"] = proc.returncode
+        result.update(parse_log(log_path))
+        if os.path.isfile(rss_path):
+            with open(rss_path) as f:
+                tokens = f.read().split()
+            if tokens and tokens[-1].isdigit():
+                result["max_rss_mb"] = int(tokens[-1]) / 1024.0
 
     if not os.path.isfile(traj_path) or os.path.getsize(traj_path) == 0:
         result["error"] = "no trajectory written"
         return result
     with open(traj_path) as f:
         result["n_poses"] = sum(1 for _ in f)
-    if "wall_time_s" in result and result["n_poses"] > 0:
-        result["hz"] = result["n_poses"] / result["wall_time_s"]
     if run["gt"]:
         try:
             res = evaluate(traj_path, run["gt"], run["lever_arm"], args.max_gap,
@@ -182,9 +210,14 @@ def plot(res, path, title):
 def format_row(r):
     if "rmse" not in r:
         return "%-15s %-8s %s" % (r["name"], r["dataset"], r.get("error", "no ground truth"))
-    return "%-15s %-8s ATE %7.3f m  max %7.3f  len %7.1f m (%5.2f %%)  cov %5.1f %%  dt %+.3f s  %s" % (
-        r["name"], r["dataset"], r["rmse"], r["max"], r["gt_length"], r["rmse_percent"],
-        100 * r["coverage"], r["time_offset"], ("%5.1f Hz" % r["hz"]) if "hz" in r else "")
+    timing = ""
+    if "step_mean_ms" in r:
+        timing = "%5.1f ms/scan (max %.0f)" % (r["step_mean_ms"], r["step_max_ms"])
+    if "max_rss_mb" in r:
+        timing += "  %.0f MB" % r["max_rss_mb"]
+    return "%-15s %-9s ATE %7.3f m  max %7.3f  len %7.1f m  cov %5.1f %%  dt %+.3f s  %s" % (
+        r["name"], r["dataset"], r["rmse"], r["max"], r["gt_length"], 100 * r["coverage"],
+        r["time_offset"], timing)
 
 
 def main():
@@ -198,7 +231,8 @@ def main():
                         help="override a dataset root")
     parser.add_argument("--params", default=os.path.join(REPO_DIR, "config", "params.yaml"))
     parser.add_argument("--set", action="append", default=[], type=parse_override,
-                        metavar="SECTION.KEY=VALUE", help="override a config value")
+                        metavar="SECTION.KEY=VALUE",
+                        help="override a config value ({out_dir} expands to the run folder)")
     parser.add_argument("--out", default=None, help="result root (default: <workspace>/results)")
     parser.add_argument("--bin-dir", default=None,
                         help="folder with an alternative process_bag + libbievr_lio.so")

@@ -1,7 +1,6 @@
 #ifndef BIEVR_LIO_INTENSITY_H_
 #define BIEVR_LIO_INTENSITY_H_
 
-#include <limits>
 #include <vector>
 
 #include "bievr_lio/common.h"
@@ -34,9 +33,10 @@ struct IntensityConfig {
   // and a horizontal low-pass FIR filter is removed from the image. Disabled if a kernel is empty.
   std::vector<double> line_highpass;
   std::vector<double> line_lowpass;
-  // Points outside of this range [m] do not get an intensity.
+  // Points outside of this range [m] do not get an intensity. Far returns are weak, so their
+  // filtered intensity is noisy.
   double min_range = 0.0;
-  double max_range = std::numeric_limits<double>::max();
+  double max_range = 30.0;
 
   // --- Map-informed intensity point sampling ---
   // Number of voxels with the strongest contribution that are used as intensity voxels.

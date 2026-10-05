@@ -11,3 +11,12 @@ calibration: # T_IMU_LIDAR (LiDAR -> IMU)
 lidar:
   min_range_m: 0.5 # Exclude points closer than this range [m]
   max_range_m: 100 # Exclude points farther than this range [m]
+
+intensity: # Hesai XT32 (32 beams, -16 to 15 deg, 0.18 deg azimuth resolution at 10 Hz)
+  enabled: False # Not validated on this sensor
+  image_width: 2000 # Horizontal resolution of the intensity image (360 deg)
+  image_height: 32 # Vertical resolution of the intensity image
+  fov_up_deg: 15.5 # Elevation of the upper image border [deg]
+  fov_down_deg: -16.5 # Elevation of the lower image border [deg]
+  scale: 1.0 # Scale applied to the raw intensity
+  window: [81, 5] # Brightness normalization window [px] (width, height)

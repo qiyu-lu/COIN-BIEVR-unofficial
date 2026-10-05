@@ -35,12 +35,19 @@ def main():
     parser.add_argument("--trajectory", default=None, help="TUM trajectory to draw on top")
     parser.add_argument("--crop", type=float, nargs=4, default=None,
                         metavar=("XMIN", "XMAX", "YMIN", "YMAX"), help="region to render [m]")
+    parser.add_argument("--margin", type=float, default=None,
+                        help="render the area within this distance [m] around the trajectory")
     parser.add_argument("--z-range", type=float, nargs=2, default=None, metavar=("ZMIN", "ZMAX"),
                         help="only use points with a height inside this range [m]")
     args = parser.parse_args()
 
     points = load_pcd(args.map)
     points = points[points[:, 3] > 0]
+    trajectory = np.loadtxt(args.trajectory) if args.trajectory else None
+    if args.margin is not None and trajectory is not None and args.crop is None:
+        lo = trajectory[:, 1:3].min(axis=0) - args.margin
+        hi = trajectory[:, 1:3].max(axis=0) + args.margin
+        args.crop = [lo[0], hi[0], lo[1], hi[1]]
     if args.z_range:
         points = points[(points[:, 2] >= args.z_range[0]) & (points[:, 2] <= args.z_range[1])]
     if args.crop:
@@ -71,8 +78,7 @@ def main():
     ax = fig.add_axes([0, 0, 1, 1])
     ax.imshow(image, cmap="gray", vmin=0, vmax=255, origin="lower", extent=(x0, x1, y0, y1),
               interpolation="nearest")
-    if args.trajectory:
-        trajectory = np.loadtxt(args.trajectory)
+    if trajectory is not None:
         ax.plot(trajectory[:, 1], trajectory[:, 2], color="tab:orange", lw=1.0)
     ax.set_xlim(x0, x1)
     ax.set_ylim(y0, y1)

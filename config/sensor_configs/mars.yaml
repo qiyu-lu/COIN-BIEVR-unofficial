@@ -16,6 +16,7 @@ map:
   max_size: 600000 # Maximum number of voxels to keep in the map
 
 intensity: # Livox Avia (non-repetitive scan pattern, 70.4 x 77.2 deg field of view)
+  enabled: False # Not validated on this dataset
   image_width: 900 # Horizontal resolution of the intensity image (360 deg)
   image_height: 200 # Vertical resolution of the intensity image
   fov_up_deg: 40 # Elevation of the upper image border [deg]

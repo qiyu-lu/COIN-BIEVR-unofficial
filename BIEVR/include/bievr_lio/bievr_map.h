@@ -48,8 +48,10 @@ class BIEVRMap {
     bool weighted = false;      // use range weighted update for bump image
     bool smooth = false;        // apply gaussian smoothing to bump image
     double norm_tol_deg{3.0};   // if normal changes more than this, reproject bump image
-    bool intensity = false;     // store a voxel-wise intensity map next to the bump image
-    bool smooth_intensity = true;  // apply gaussian smoothing to the intensity map
+    // store a voxel-wise intensity map next to the bump image
+    bool intensity = false;
+    // apply gaussian smoothing to the intensity map
+    bool smooth_intensity = true;
   };
 
   explicit BIEVRMap(Config config);

@@ -283,7 +283,7 @@ inline bool loadConfigFromYaml(const std::vector<std::string>& yaml_paths, Confi
       !config_internal::getPositive(yaml, "intensity", "scale", 1.0, ic.scale) ||
       !config_internal::getPositive(yaml, "intensity", "brightness_scale", 140.0,
                                     ic.brightness_scale) ||
-      !config_internal::getPositive(yaml, "intensity", "max_range_m", 100.0, ic.max_range) ||
+      !config_internal::getPositive(yaml, "intensity", "max_range_m", 30.0, ic.max_range) ||
       !config_internal::getPositive(yaml, "intensity", "num_voxels", 100, num_voxels) ||
       !config_internal::getPositive(yaml, "intensity", "degeneracy_ratio", 10.0,
                                     ic.degeneracy_ratio) ||

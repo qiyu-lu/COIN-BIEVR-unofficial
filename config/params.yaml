@@ -20,6 +20,7 @@ intensity:
   num_voxels: 100 # Number of voxels with the most informative intensity that intensity points are sampled from
   photo_scale: 0.002 # Scale of the photometric residuals (intensity in [0, 255]) relative to the geometric residuals [m]
   smooth: True # Apply smoothing to the voxel intensity map
+  max_range_m: 30 # Points farther than this range [m] are not used for intensity (weak, noisy returns)
   # The intensity image used for the brightness normalization is sensor specific and is set in the
   # sensor config (image_width, image_height, fov_up_deg, fov_down_deg, scale, window, ...).
 
